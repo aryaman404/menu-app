@@ -34,13 +34,13 @@ exports.getMenu = async (req, res) => {
   }
 };
 
-// 🔥 UPDATE MENU (DAILY + AUTO WEEKLY SYNC)
+// 🔥 UPDATE MENU (DAILY ONLY - WEEKLY TABLE UPDATED AT 11:45 PM)
 exports.updateMenu = async (req, res) => {
   try {
     const { items } = req.body;
     const type = req.params.type;
 
-    // 1️⃣ UPDATE DAILY MENU (your existing logic)
+    // 1️⃣ UPDATE DAILY MENU IMMEDIATELY (visible in Breakfast/Lunch/Dinner sections)
     const menu = await Menu.findOneAndUpdate(
       { type },
       {
@@ -50,12 +50,9 @@ exports.updateMenu = async (req, res) => {
       { new: true, upsert: true },
     );
 
-    // 2️⃣ AUTO UPDATE WEEKLY MENU
+    // 2️⃣ SAVE TO WEEKLY MENU PENDING FIELDS (committed at 11:45 PM)
     const weekStart = getMonday(new Date());
-
-    const today = new Date().toLocaleDateString("en-US", {
-      weekday: "long",
-    });
+    const today = new Date().toLocaleDateString("en-US", { weekday: "long" });
 
     let weekly = await WeeklyMenu.findOne({ weekStart });
 
@@ -64,13 +61,13 @@ exports.updateMenu = async (req, res) => {
       weekly = new WeeklyMenu({
         weekStart,
         data: [
-          { day: "Monday", breakfast: "", lunch: "", dinner: "" },
-          { day: "Tuesday", breakfast: "", lunch: "", dinner: "" },
-          { day: "Wednesday", breakfast: "", lunch: "", dinner: "" },
-          { day: "Thursday", breakfast: "", lunch: "", dinner: "" },
-          { day: "Friday", breakfast: "", lunch: "", dinner: "" },
-          { day: "Saturday", breakfast: "", lunch: "", dinner: "" },
-          { day: "Sunday", breakfast: "", lunch: "", dinner: "" },
+          { day: "Monday", breakfast: "", lunch: "", dinner: "", pending: { breakfast: "", lunch: "", dinner: "" }, lastCommittedAt: null },
+          { day: "Tuesday", breakfast: "", lunch: "", dinner: "", pending: { breakfast: "", lunch: "", dinner: "" }, lastCommittedAt: null },
+          { day: "Wednesday", breakfast: "", lunch: "", dinner: "", pending: { breakfast: "", lunch: "", dinner: "" }, lastCommittedAt: null },
+          { day: "Thursday", breakfast: "", lunch: "", dinner: "", pending: { breakfast: "", lunch: "", dinner: "" }, lastCommittedAt: null },
+          { day: "Friday", breakfast: "", lunch: "", dinner: "", pending: { breakfast: "", lunch: "", dinner: "" }, lastCommittedAt: null },
+          { day: "Saturday", breakfast: "", lunch: "", dinner: "", pending: { breakfast: "", lunch: "", dinner: "" }, lastCommittedAt: null },
+          { day: "Sunday", breakfast: "", lunch: "", dinner: "", pending: { breakfast: "", lunch: "", dinner: "" }, lastCommittedAt: null },
         ],
       });
     }
@@ -82,18 +79,26 @@ exports.updateMenu = async (req, res) => {
     let dayEntry = weekly.data.find((d) => d.day === today);
 
     if (!dayEntry) {
-      // create day if missing
-      weekly.data.push({
+      // create day if missing - use nested PENDING fields
+      const newDay = {
         day: today,
-        breakfast: type === "breakfast" ? value : "",
-        lunch: type === "lunch" ? value : "",
-        dinner: type === "dinner" ? value : "",
-        updatedAt: new Date(),
-      });
+        breakfast: "",
+        lunch: "",
+        dinner: "",
+        pending: {
+          breakfast: type === "breakfast" ? value : "",
+          lunch: type === "lunch" ? value : "",
+          dinner: type === "dinner" ? value : "",
+        },
+        lastCommittedAt: null,
+      };
+      weekly.data.push(newDay);
     } else {
-      // update existing day
-      dayEntry[type] = value;
-      dayEntry.updatedAt = new Date();
+      // Save to nested PENDING field (not visible until 11:45 PM commit)
+      if (!dayEntry.pending) {
+        dayEntry.pending = { breakfast: "", lunch: "", dinner: "" };
+      }
+      dayEntry.pending[type] = value;
     }
 
     await weekly.save();
