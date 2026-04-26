@@ -1,21 +1,22 @@
 const express = require("express");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
+const compression = require("compression");
+const helmet = require("helmet");
 
 const app = express();
 const visitorRoutes = require("./routes/visitorRoutes");
 const weeklyMenuRoutes = require("./routes/weeklyMenuRoutes");
 
-// Rate limiting - 100 requests per 15 minutes per IP
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: "Too many requests from this IP, please try again later.",
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable CSP for simplicity
+  crossOriginEmbedderPolicy: false
+}));
 
-app.use(limiter);
+// Compression
+app.use(compression());
+
 app.use(
   cors({
     origin: [
@@ -23,10 +24,30 @@ app.use(
       "https://delicate-bunny-76fc4e.netlify.app"
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true
+    credentials: true,
   }),
 );
-app.use(express.json());
+
+// Rate limiting - increased for production/low-traffic use
+const limiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 200, // allow more requests per minute
+  message: "Too many requests, please try again later.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(limiter);
+app.use(express.json({ limit: '10mb' })); // Limit payload size
+
+// Health check endpoint for Render
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
 
 // routes
 app.use("/api/menu", require("./routes/menuRoutes"));
